@@ -8,7 +8,7 @@ This benchmarks xgboost (`v0.60@b4d97d3`, `v0.60@3b9b573`) and LightGBM (`v1@ea6
 
 - 1, 2, 3, 4, 5, 6, 12 threads: Intel i7-3930K (6c/12t, 3.9/3.5GHz turbo) + 64GB RAM 1600MHz
 - 20, 40 threads: Dual Quanta Freedom Ivy Bridge 2.3GHz (10c/20t, 3.1/2.7GHz turbo) + 80GB RAM 1600MHz
-- Windows Server 2012 R2 virtualized using 12 (i7-3930K) or 40 (Dual Quanta Freedom) virtual sockets
+- Windows Server 2012 R2 virtualized using 12 (i7-3930K) or 40 (Dual Quanta Freedom) virtual sockets (will not work in Linux environments, you will need to do some script hacking to remove RAM monitoring)
 - Microsoft R Client 3.3.2
 - Rtools 3.4
 - xgboost compiled with default flags after manual compilation
@@ -220,6 +220,11 @@ Each time, you have the choice between the files you want to run. Keep in mind t
 ---
 
 **Dataset Creation:**
+
+You will need to download the datasets first which will be put in `/data`:
+
+* Bosch: https://www.kaggle.com/c/bosch-production-line-performance/data
+* Higgs: https://archive.ics.uci.edu/ml/machine-learning-databases/00280/
 
 This will setup core datasets for Bosch and Higgs, assuming they were downloaded in `../data`.
 
