@@ -1,6 +1,10 @@
 # Gradient Boosted Trees Massive Benchmarking
 
-This benchmarks xgboost (`v0.60@b4d97d3`, `v0.60@3b9b573`) and LightGBM (`v1`, `v2@1bf7bbd`, with different compilation flags) using R on the following constraints:
+Notebook with graphics and benchmark data load: https://htmlpreview.github.io/?https://github.com/Laurae2/gbt_benchmarks/blob/master/data_analysis.nb.html
+
+---
+
+This benchmarks xgboost (`v0.60@b4d97d3`, `v0.60@3b9b573`) and LightGBM (`v1@ea6bc0a`, `v2@1bf7bbd`, with different compilation flags) using R on the following constraints:
 
 - 1, 2, 3, 4, 5, 6, 12 threads: Intel i7-3930K (6c/12t, 3.9/3.5GHz turbo) + 64GB RAM 1600MHz
 - 20, 40 threads: Dual Quanta Freedom Ivy Bridge 2.3GHz (10c/20t, 3.1/2.7GHz turbo) + 80GB RAM 1600MHz
@@ -25,7 +29,7 @@ xgboost was tested under the following flags:
 
 LightGBM was tested under the following flags:
 
-* For each run: `v1` and `v2@1bf7bbd`
+* For each run: `v1@ea6bc0a` and `v2@1bf7bbd`
 * `-O2 -mtune=core2` (R's default flags ; benchmark)
 * `-O3 -march=native` on compile and `-Wl,-O1 -O3` on linking (native = sandybridge ; slower)
 * `-O3 -march=native -ffast-math` on compile and `-Wl,-O1 -O3 -Wl,-ffast-math` on linking (native = sandybridge ; slightly)
@@ -39,7 +43,7 @@ Versions to install:
 
 * xgboost-ex: manual installation of commit `dmlc/xgboost@3b9b573` (Pull Request 2161, Mar 31 2017) or `devtools::install_github("Laurae2/ez_xgb/R-package@2017-03-31-v2", force = TRUE)`
 
-* LightGBM v1: `devtools::install_github("Microsoft/LightGBM@v1", subdir = "R-package", force = TRUE)`
+* LightGBM v1: `devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)`
 
 * LightGBM v2: `devtools::install_github("Microsoft/LightGBM@1bf7bbd", subdir = "R-package", force = TRUE)`
 
@@ -399,7 +403,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
@@ -507,7 +511,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
@@ -542,7 +546,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
@@ -577,7 +581,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
