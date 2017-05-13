@@ -1,0 +1,1316 @@
+---
+title: "Xgboost vs LightGBM"
+output: html_notebook
+---
+
+# Intro
+
+## Libraries
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(plotly)
+
+multiplot <- function(..., plotlist = NULL, cols) {
+  require(grid)
+  
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  plotCols = cols
+  plotRows = ceiling(numPlots/plotCols)
+  
+  grid.newpage()
+  pushViewport(viewport(layout = grid.layout(plotRows, plotCols)))
+  vplayout <- function(x, y)
+    viewport(layout.pos.row = x, layout.pos.col = y)
+  
+  for (i in 1:numPlots) {
+    curRow = ceiling(i / plotCols)
+    curCol = (i - 1) %% plotCols + 1
+    print(plots[[i]], vp = vplayout(curRow, curCol))
+  }
+  
+}
+```
+
+## Summary Load
+
+```{r}
+# Load data
+setwd("D:/Data Science/Bench_boosting")
+summary_data <- fread("summary/common.txt",
+                      colClasses = c(rep("character", 5),
+                                     rep("numeric", 4),
+                                     rep("character", 6),
+                                     rep("numeric", 6)),
+                      quote = "'")
+
+# Post corrections
+summary_data$Dataset <- factor(summary_data$Dataset, levels = c("bosch", "higgs"), labels = c("Bosch", "Higgs"))
+
+summary_data$Algorithm <- factor(summary_data$Algorithm, levels = c("xgboost-exact-O3", "xgboost-depthwise", "xgboost-depthwise-O3", "xgboost-depthwise-O3-fmath", "xgboost-lossguide", "xgboost-lossguide-O3", "xgboost-lossguide-O3-fmath", "lightgbm-v1", "lightgbm-v1-Os", "lightgbm-v1-O2", "lightgbm-v1-O3", "lightgbm-v1-O3-fmath", "lightgbm-v2", "lightgbm-v2-Os", "lightgbm-v2-O2", "lightgbm-v2-O3", "lightgbm-v2-O3-fmath", "lightgbm-v2-gpu"))
+
+summary_data$Type <- factor(summary_data$Type, levels = c("leaves", "depth", "hessian", "sampling"), labels = c("Leaves", "Depth", "Hessian", "Sampling"))
+
+summary_data$Run <- factor(summary_data$Run, levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))
+
+summary_data$Threads <- factor(summary_data$Threads, levels = c("1", "2", "3", "4", "5", "6", "12", "20", "40", "gpu"))
+
+summary_data$Eta <- factor(summary_data$Eta, levels = c("0.02", "0.04", "0.25"))
+
+summary_data$Leaves <- factor(summary_data$Leaves, levels = c("7", "15", "31", "63", "127", "255", "511", "1023", "2047", "4095"))
+
+summary_data$Depth[summary_data$Depth == "-1"] <- "0" # Override -1 by 0 for consistency
+summary_data$Depth <- factor(summary_data$Depth, levels = c("0", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"))
+
+summary_data$Hessian <- factor(summary_data$Hessian, levels = c("1", "5", "25", "125"))
+
+summary_data$Subsample <- factor(summary_data$Subsample, levels = c("1", "0.8", "0.6", "0.4"))
+
+summary_data$Colsample_bytree <- factor(summary_data$Colsample_bytree, levels = "1")
+
+colnames(summary_data)[6] <- "TotalTime"
+colnames(summary_data)[8] <- "BestIteration"
+colnames(summary_data)[16] <- "RAM_001p"
+colnames(summary_data)[17] <- "RAM_025p"
+colnames(summary_data)[18] <- "RAM_050p"
+colnames(summary_data)[19] <- "RAM_075p"
+colnames(summary_data)[20] <- "TotalRAM"
+colnames(summary_data)[21] <- "gcRAM"
+```
+
+## Experiment Load
+
+```{r}
+experiment_list <- list()
+
+# CODE LIST
+# 01 = Leaves on Bosch
+# 02 = Depth on Bosch
+# 03 = Hessian on Bosch
+# 04 = Sampling on Bosch
+# 05 = Leaves on Higgs
+# 06 = Depth on Higgs
+# 07 = Hessian on Higgs
+# 08 = Sampling on Higgs
+# 09 = Fast Depth on Bosch
+# 10 = Fast Hessian on Bosch
+# 11 = Fast Sampling on Bosch
+
+experiment_list[["01"]] <- data.frame(Dataset = rep("Bosch", 10),
+                                      Type = rep("Leaves", 10),
+                                      Iterations = c(2000, 1500, 1000, 1000, 500, rep(400, 5)),
+                                      Eta = rep(0.02, 10),
+                                      Leaves = 2^(3:12) - 1,
+                                      Depth = rep(0, 10),
+                                      Hessian = rep(1, 10),
+                                      Subsample = rep(1, 10),
+                                      Colsample_bytree = rep(1, 10))
+
+experiment_list[["02"]] <- data.frame(Dataset = rep("Bosch", 10),
+                                      Type = rep("Depth", 10),
+                                      Iterations = c(2000, 1500, 1000, 1000, 500, rep(400, 5)),
+                                      Eta = rep(0.02, 10),
+                                      Leaves = 2^(3:12) - 1,
+                                      Depth = 3:12,
+                                      Hessian = rep(1, 10),
+                                      Subsample = rep(1, 10),
+                                      Colsample_bytree = rep(1, 10))
+
+experiment_list[["03"]] <- data.frame(Dataset = rep("Bosch", 4),
+                                      Type = rep("Hessian", 4),
+                                      Iterations = rep(400, 4),
+                                      Eta = rep(0.02, 4),
+                                      Leaves = rep(1023, 4),
+                                      Depth = rep(10, 4),
+                                      Hessian = c(1, 5, 25, 125),
+                                      Subsample = rep(1, 4),
+                                      Colsample_bytree = rep(1, 4))
+
+experiment_list[["04"]] <- data.frame(Dataset = rep("Bosch", 4),
+                                      Type = rep("Sampling", 4),
+                                      Iterations = rep(1000, 4),
+                                      Eta = rep(0.04, 4),
+                                      Leaves = rep(63, 4),
+                                      Depth = rep(6, 4),
+                                      Hessian = rep(1, 4),
+                                      Subsample = c(1, 0.8, 0.6, 0.4),
+                                      Colsample_bytree = rep(1, 4))
+
+experiment_list[["05"]] <- data.frame(Dataset = rep("Higgs", 10),
+                                      Type = rep("Leaves", 10),
+                                      Iterations = rep(500, 10),
+                                      Eta = rep(0.25, 10),
+                                      Leaves = 2^(3:12) - 1,
+                                      Depth = rep(0, 10),
+                                      Hessian = rep(1, 10),
+                                      Subsample = rep(1, 10),
+                                      Colsample_bytree = rep(1, 10))
+
+experiment_list[["06"]] <- data.frame(Dataset = rep("Higgs", 10),
+                                      Type = rep("Depth", 10),
+                                      Iterations = rep(500, 10),
+                                      Eta = rep(0.25, 10),
+                                      Leaves = 2^(3:12) - 1,
+                                      Depth = 3:12,
+                                      Hessian = rep(1, 10),
+                                      Subsample = rep(1, 10),
+                                      Colsample_bytree = rep(1, 10))
+
+experiment_list[["07"]] <- data.frame(Dataset = rep("Higgs", 4),
+                                      Type = rep("Hessian", 4),
+                                      Iterations = rep(500, 4),
+                                      Eta = rep(0.25, 4),
+                                      Leaves = rep(1023, 4),
+                                      Depth = rep(10, 4),
+                                      Hessian = c(1, 5, 25, 125),
+                                      Subsample = rep(1, 4),
+                                      Colsample_bytree = rep(1, 4))
+
+experiment_list[["08"]] <- data.frame(Dataset = rep("Higgs", 4),
+                                      Type = rep("Sampling", 4),
+                                      Iterations = rep(1000, 4),
+                                      Eta = rep(0.04, 4),
+                                      Leaves = rep(63, 4),
+                                      Depth = rep(6, 4),
+                                      Hessian = rep(1, 4),
+                                      Subsample = c(1, 0.8, 0.6, 0.4),
+                                      Colsample_bytree = rep(1, 4))
+
+experiment_list[["9"]] <- data.frame(Dataset = rep("Bosch", 2),
+                                      Type = rep("Depth", 2),
+                                      Iterations = c(1000, 400),
+                                      Eta = rep(0.02, 2),
+                                      Leaves = c(63, 1023),
+                                      Depth = c(6, 10),
+                                      Hessian = rep(1, 2),
+                                      Subsample = rep(1, 2),
+                                      Colsample_bytree = rep(1, 2))
+
+experiment_list[["10"]] <- data.frame(Dataset = rep("Bosch", 2),
+                                      Type = rep("Hessian", 2),
+                                      Iterations = rep(400, 2),
+                                      Eta = rep(0.02, 2),
+                                      Leaves = rep(1023, 2),
+                                      Depth = rep(10, 2),
+                                      Hessian = c(1, 25),
+                                      Subsample = rep(1, 2),
+                                      Colsample_bytree = rep(1, 2))
+
+experiment_list[["11"]] <- data.frame(Dataset = rep("Bosch", 2),
+                                      Type = rep("Sampling", 2),
+                                      Iterations = rep(1000, 2),
+                                      Eta = rep(0.04, 2),
+                                      Leaves = rep(63, 2),
+                                      Depth = rep(6, 2),
+                                      Hessian = rep(1, 2),
+                                      Subsample = c(1, 0.6),
+                                      Colsample_bytree = rep(1, 2))
+
+experiment_list <- rbindlist(experiment_list, idcol = "Experiment")
+
+experiment_list$Dataset <- factor(experiment_list$Dataset, levels = c("Bosch", "Higgs"))
+
+experiment_list$Type <- factor(experiment_list$Type, levels = c("Leaves", "Depth", "Hessian", "Sampling"))
+
+experiment_list$Eta <- factor(experiment_list$Eta, levels = c("0.02", "0.04", "0.25"))
+
+experiment_list$Leaves <- factor(experiment_list$Leaves, levels = c("7", "15", "31", "63", "127", "255", "511", "1023", "2047", "4095"))
+
+experiment_list$Depth <- factor(experiment_list$Depth, levels = c("0", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"))
+
+experiment_list$Hessian <- factor(experiment_list$Hessian, levels = c("1", "5", "25", "125"))
+
+experiment_list$Subsample <- factor(experiment_list$Subsample, levels = c("1", "0.8", "0.6", "0.4"))
+
+experiment_list$Colsample_bytree <- factor(experiment_list$Colsample_bytree, levels = "1")
+
+```
+
+## File Smasher
+
+```{r}
+setwd("D:/Data Science/Bench_boosting")
+
+# 01: Dataset name
+# 02: Algorithm
+# 03: Threads
+# 04: CPU used
+# 05: Variable Parameter value assigned to file
+# 06: Folder name
+# 07: Dataset name assigned to file
+# 08: Type assigned to file
+# 09: Decimal/Integer transformation to Variable Parameter assigned to file
+# 10: Deciaml/Integer transformation to Threads assigned to file
+# 11: Compilation Importance [2: base analysis, 1: not that important, 0: skippable]
+# 12: Compilation Flags -like [Base, Os, O2, O3, fmath]
+# 13: Experiment Part
+
+loading_list_leaves <- list(
+  list("Bosch",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       2^(3:12) - 1,
+       "lgb_v1",
+       "bosch",
+       "leaves",
+       "%04d",
+       "%02d",
+       2,
+       "Base",
+       "02"),
+  list("Bosch",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       2^(3:12) - 1,
+       "lgb_v2",
+       "bosch",
+       "leaves",
+       "%04d",
+       "%02d",
+       2,
+       "Base",
+       "02"),
+  list("Bosch",
+       "lightgbm-v2-gpu",
+       "gpu",
+       c("20 core Xeon"),
+       2^(3:12) - 1,
+       "lgb_v2",
+       "bosch",
+       "leaves",
+       "%04d",
+       "gpu",
+       0,
+       "Base",
+       "02"),
+  list("Bosch",
+       "xgboost-lossguide",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       2^(3:12) - 1,
+       "xgb_gbt_lg",
+       "bosch",
+       "leaves",
+       "%04d",
+       "%02d",
+       2,
+       "Base",
+       "02"),
+  list("Higgs",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       2^(3:12) - 1,
+       "lgb_v1",
+       "higgs",
+       "leaves",
+       "%04d",
+       "%02d",
+       2,
+       "Base",
+       "06"),
+  list("Higgs",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       2^(3:12) - 1,
+       "lgb_v2",
+       "higgs",
+       "leaves",
+       "%04d",
+       "%02d",
+       2,
+       "Base",
+       "06"),
+  list("Higgs",
+       "xgboost-lossguide",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       2^(3:12) - 1,
+       "xgb_gbt_lg",
+       "higgs",
+       "leaves",
+       "%04d",
+       "%02d",
+       2,
+       "Base",
+       "06"),
+  list("Bosch",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       3:12,
+       "lgb_v1",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "01"),
+  list("Bosch",
+       "lightgbm-v1-Os",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v1-Os",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       0,
+       "Os",
+       "01"),
+  list("Bosch",
+       "lightgbm-v1-O2",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v1-O2",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "O2",
+       "01"),
+  list("Bosch",
+       "lightgbm-v1-O3",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v1-O3",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "O3",
+       "01"),
+  list("Bosch",
+       "lightgbm-v1-O3-fmath",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v1-O3-fmath",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "fmath",
+       "01"),
+  list("Bosch",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       3:12,
+       "lgb_v2",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "01"),
+  list("Bosch",
+       "lightgbm-v2-Os",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v2-Os",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       0,
+       "Os",
+       "01"),
+  list("Bosch",
+       "lightgbm-v2-O2",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v2-O2",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "O2",
+       "01"),
+  list("Bosch",
+       "lightgbm-v2-O3",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v2-O3",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "O3",
+       "01"),
+  list("Bosch",
+       "lightgbm-v2-O3-fmath",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "lgb_v2-O3-fmath",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "fmath",
+       "01"),
+  list("Bosch",
+       "xgboost-exact-O3",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(6, 10),
+       "xgb-O3-exact_gbt",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       0,
+       "O3",
+       "09"),
+  list("Bosch",
+       "xgboost-depthwise",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       3:12,
+       "xgb_gbt_dw",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "02"),
+  list("Bosch",
+       "xgboost-depthwise-O3",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "xgb-O3_gbt_dw",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "O3",
+       "01"),
+  list("Bosch",
+       "xgboost-depthwise-O3-fmath",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "xgb-O3-fmath_gbt_dw",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "fmath",
+       "01"),
+  list("Bosch",
+       "xgboost-lossguide",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       3:12,
+       "xgb_gbt_lg",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "02"),
+  list("Bosch",
+       "xgboost-lossguide-O3",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "xgb-O3_gbt_lg",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "O3",
+       "01"),
+  list("Bosch",
+       "xgboost-lossguide-O3-fmath",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "xgb-O3-fmath_gbt_lg",
+       "bosch",
+       "depth",
+       "%02d",
+       "%02d",
+       1,
+       "fmath",
+       "01"),
+  list("Higgs",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       3:12,
+       "lgb_v1",
+       "higgs",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "05"),
+  list("Higgs",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       3:12,
+       "lgb_v2",
+       "higgs",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "05"),
+  list("Higgs",
+       "xgboost-depthwise",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "xgb_gbt_dw",
+       "higgs",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "05"),
+  list("Higgs",
+       "xgboost-lossguide",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       3:12,
+       "xgb_gbt_lg",
+       "higgs",
+       "depth",
+       "%02d",
+       "%02d",
+       2,
+       "Base",
+       "05"),
+  list("Bosch",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 5, 25, 125),
+       "lgb_v1",
+       "bosch",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "03"),
+  list("Bosch",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 5, 25, 125),
+       "lgb_v2",
+       "bosch",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "03"),
+  list("Bosch",
+       "xgboost-exact-O3",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 25),
+       "xgb-O3-exact_gbt",
+       "bosch",
+       "hessian",
+       "%03d",
+       "%02d",
+       0,
+       "O3",
+       "10"),
+  list("Bosch",
+       "xgboost-depthwise",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 5, 25, 125),
+       "xgb_gbt_dw",
+       "bosch",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "03"),
+  list("Bosch",
+       "xgboost-lossguide",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 5, 25, 125),
+       "xgb_gbt_lg",
+       "bosch",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "03"),
+  list("Higgs",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 5, 25, 125),
+       "lgb_v1",
+       "higgs",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "07"),
+  list("Higgs",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 5, 25, 125),
+       "lgb_v2",
+       "higgs",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "07"),
+  list("Higgs",
+       "xgboost-depthwise",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       c(1, 5, 25, 125),
+       "xgb_gbt_dw",
+       "higgs",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "07"),
+  list("Higgs",
+       "xgboost-lossguide",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       c(1, 5, 25, 125),
+       "xgb_gbt_lg",
+       "higgs",
+       "hessian",
+       "%03d",
+       "%02d",
+       2,
+       "Base",
+       "07"),
+  list("Bosch",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 0.8, 0.6, 0.4),
+       "lgb_v1",
+       "bosch",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "04"),
+  list("Bosch",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 0.8, 0.6, 0.4),
+       "lgb_v2",
+       "bosch",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "04"),
+  list("Bosch",
+       "xgboost-exact-O3",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 0.6),
+       "xgb-O3-exact_gbt",
+       "bosch",
+       "sampling",
+       "%.01f",
+       "%02d",
+       0,
+       "O3",
+       "11"),
+  list("Bosch",
+       "xgboost-depthwise",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 0.8, 0.6, 0.4),
+       "xgb_gbt_dw",
+       "bosch",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "04"),
+  list("Bosch",
+       "xgboost-lossguide",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 0.8, 0.6, 0.4),
+       "xgb_gbt_lg",
+       "bosch",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "04"),
+  list("Higgs",
+       "lightgbm-v1",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 0.8, 0.6, 0.4),
+       "lgb_v1",
+       "higgs",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "08"),
+  list("Higgs",
+       "lightgbm-v2",
+       c(1:6, 12, 20, 40),
+       c(rep("i7-3930K", 7), rep("20 core Xeon", 2)),
+       c(1, 0.8, 0.6, 0.4),
+       "lgb_v2",
+       "higgs",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "08"),
+  list("Higgs",
+       "xgboost-depthwise",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       c(1, 0.8, 0.6, 0.4),
+       "xgb_gbt_dw",
+       "higgs",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "08"),
+  list("Higgs",
+       "xgboost-lossguide",
+       c(1:6, 12),
+       rep("i7-3930K", 7),
+       c(1, 0.8, 0.6, 0.4),
+       "xgb_gbt_lg",
+       "higgs",
+       "sampling",
+       "%.01f",
+       "%02d",
+       2,
+       "Base",
+       "08")
+)
+
+scattered_list <- list()
+
+# Loop through each element of the list
+for (n_data in 1:length(loading_list_leaves)) {
+  
+  # Loop through each thread
+  for (n_thread in 1:length(loading_list_leaves[[n_data]][[3]])) {
+    
+    # Loop through each paramter
+    for (n_param in 1:length(loading_list_leaves[[n_data]][[5]])) {
+      
+      scattered_list[[length(scattered_list) + 1]] <- data.table(Dataset = loading_list_leaves[[n_data]][[1]],
+                                                                 Algorithm = loading_list_leaves[[n_data]][[2]],
+                                                                 Type = paste0(toupper(substr(loading_list_leaves[[n_data]][[8]], 1, 1)), substr(loading_list_leaves[[n_data]][[8]], 2, nchar(loading_list_leaves[[n_data]][[8]]))),
+                                                                 Parameter = sprintf(loading_list_leaves[[n_data]][[9]], loading_list_leaves[[n_data]][[5]][n_param]),
+                                                                 Run = as.character(n_param),
+                                                                 Threads = as.character(loading_list_leaves[[n_data]][[3]][n_thread]),
+                                                                 CPU = loading_list_leaves[[n_data]][[4]][n_thread],
+                                                                 Importance = as.character(loading_list_leaves[[n_data]][[11]]),
+                                                                 Compilation = loading_list_leaves[[n_data]][[12]],
+                                                                 Experiment = loading_list_leaves[[n_data]][[13]],
+                                                                 fread(paste0(loading_list_leaves[[n_data]][[6]], "/", sprintf(loading_list_leaves[[n_data]][[10]], loading_list_leaves[[n_data]][[3]][n_thread]), "t_", loading_list_leaves[[n_data]][[7]], "_", loading_list_leaves[[n_data]][[8]], "_", sprintf(loading_list_leaves[[n_data]][[9]], loading_list_leaves[[n_data]][[5]][n_param]), ".txt")))
+      scattered_list[[length(scattered_list)]]$TimeDelta <- c(scattered_list[[length(scattered_list)]]$Time[1], scattered_list[[length(scattered_list)]]$Time[2:length(scattered_list[[length(scattered_list)]]$Time)] - scattered_list[[length(scattered_list)]]$Time[1:(length(scattered_list[[length(scattered_list)]]$Time) - 1)])
+      scattered_list[[length(scattered_list)]]$TimeDelta0 <- c(0, scattered_list[[length(scattered_list)]]$Time[2:length(scattered_list[[length(scattered_list)]]$Time)] - scattered_list[[length(scattered_list)]]$Time[1:(length(scattered_list[[length(scattered_list)]]$Time) - 1)])
+      scattered_list[[length(scattered_list)]]$AUCDelta <- scattered_list[[length(scattered_list)]]$AUC[1:length(scattered_list[[length(scattered_list)]]$AUC)] - c(0.5, scattered_list[[length(scattered_list)]]$AUC[1:(length(scattered_list[[length(scattered_list)]]$AUC) - 1)])
+      
+    }
+    
+  }
+  
+  cat("Loaded element ", sprintf("%02d", n_data), ": ", loading_list_leaves[[n_data]][[1]], " ", loading_list_leaves[[n_data]][[8]], " with ", loading_list_leaves[[n_data]][[12]], " in ", loading_list_leaves[[n_data]][[6]], ", ", loading_list_leaves[[n_data]][[2]], " [Total: ", length(scattered_list), "], dataname=", ifelse(tolower(loading_list_leaves[[n_data]][[1]]) == loading_list_leaves[[n_data]][[7]], "PASS", "***FAIL***"), ", NAs=", sum(is.na(scattered_list[[length(scattered_list)]])), "  \n", sep = "")
+  
+}
+
+scattered_list <- rbindlist(scattered_list)
+
+scattered_list$Dataset <- factor(scattered_list$Dataset, levels = c("Bosch", "Higgs"))
+
+scattered_list$Algorithm <- factor(scattered_list$Algorithm, levels = c("xgboost-exact-O3", "xgboost-depthwise", "xgboost-depthwise-O3", "xgboost-depthwise-O3-fmath", "xgboost-lossguide", "xgboost-lossguide-O3", "xgboost-lossguide-O3-fmath", "lightgbm-v1", "lightgbm-v1-Os", "lightgbm-v1-O2", "lightgbm-v1-O3", "lightgbm-v1-O3-fmath", "lightgbm-v2", "lightgbm-v2-Os", "lightgbm-v2-O2", "lightgbm-v2-O3", "lightgbm-v2-O3-fmath", "lightgbm-v2-gpu"))
+
+scattered_list$Run <- factor(scattered_list$Run, levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))
+
+scattered_list$Threads <- factor(scattered_list$Threads, levels = c("1", "2", "3", "4", "5", "6", "12", "20", "40", "gpu"))
+
+scattered_list$Type <- factor(scattered_list$Type, levels = c("Leaves", "Depth", "Hessian", "Sampling"))
+
+scattered_list$Importance <- factor(scattered_list$Importance, levels = c("0", "1", "2"))
+
+scattered_list$Compilation <- factor(scattered_list$Compilation, levels = c("Base", "Os", "O2", "O3", "fmath"))
+
+scattered_list$Experiment <- factor(scattered_list$Experiment, levels = c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"))
+
+scattered_list$CPU <- factor(scattered_list$CPU, levels = c("i7-3930K", "20 core Xeon"))
+
+scattered_list$Parameter <- factor(scattered_list$Parameter)
+```
+
+## Data Binder
+
+```{r}
+all_data <- merge(scattered_list, summary_data, by = c("Dataset", "Algorithm", "Type", "Run", "Threads"))
+```
+
+## Data Reducer
+
+```{r}
+unique_data <- unique(all_data[, c("Dataset", "Algorithm", "Type", "Run", "Threads", "CPU", "Importance", "Compilation", "Experiment", "TotalTime", "Metric", "BestIteration", "Iterations", "Parameter", "RAM_001p", "RAM_025p", "RAM_050p", "RAM_075p", "TotalRAM", "gcRAM")])
+
+unique_data$Labelled <- paste0(unique_data$Type, ": ", unique_data$Parameter)
+
+unique_data_1t <- unique(all_data[, c("Dataset", "Algorithm", "Type", "Run", "Threads", "CPU", "Importance", "Compilation", "Experiment", "TotalTime", "Metric", "BestIteration", "Iterations", "Parameter", "RAM_001p", "RAM_025p", "RAM_050p", "RAM_075p", "TotalRAM", "gcRAM")])[(Threads == "6") | (Threads == "gpu")]
+```
+
+## Data Exporter
+
+```{r}
+setwd("D:/Data Science/Bench_boosting")
+fwrite(unique_data, "nice_data.csv")
+```
+
+
+# Explore Data
+
+## Generic Data
+
+### Leaves Importance 2
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Leaves") & (Importance == "2") & (Dataset == "Bosch")], aes(x = as.numeric(Run), y = TotalTime, color = Algorithm)) + geom_point() + geom_line() + scale_x_continuous(breaks = 1:10, labels = (2^(3:12) - 1), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000)) + facet_wrap(~ paste0("Threads: ", sprintf("%02d", as.numeric(as.character(Threads)))), ncol = 3) + labs(title = "Bosch Dataset: Training Speed per Thread Count vs Leaves", x = "Leaves", y = "Training Time (seconds)") + theme_bw()
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Leaves") & (Importance == "2") & (Dataset == "Bosch")], aes(x = as.numeric(Run), y = 1 / TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:10, labels = (2^(3:12) - 1), minor_breaks = NULL, expand = c(0, 0)) + scale_y_continuous(labels = scales::percent, expand = c(0, 0)) + facet_wrap(~ paste0("Threads: ", sprintf("%02d", as.numeric(as.character(Threads)))), ncol = 3) + labs(title = "Bosch Dataset: Training Speed per Thread Count vs Leaves", x = "Leaves", y = "Training Time Density (bigger is better)") + theme_bw()
+```
+
+### Leaves Importance 0
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Leaves") & (Dataset == "Bosch")], aes(x = as.numeric(Run), y = TotalTime, color = Algorithm)) + geom_point() + geom_line() + scale_x_continuous(breaks = 1:10, labels = (2^(3:12) - 1), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000)) + facet_wrap(~ paste0("Threads: ", sprintf("%02d", as.numeric(as.character(Threads)))), ncol = 3) + labs(title = "Bosch Dataset: Training Speed per Thread Count vs Leaves", x = "Leaves", y = "Training Time (seconds)") + theme_bw()
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Leaves") & (Dataset == "Bosch")], aes(x = as.numeric(Run), y = 1 / TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:10, labels = (2^(3:12) - 1), minor_breaks = NULL, expand = c(0, 0)) + scale_y_continuous(labels = scales::percent, expand = c(0, 0)) + facet_wrap(~ paste0("Threads: ", sprintf("%02d", as.numeric(as.character(Threads)))), ncol = 3) + labs(title = "Bosch Dataset: Training Speed per Thread Count vs Leaves", x = "Leaves", y = "Training Time Density (bigger is better)") + theme_bw()
+```
+
+### Leaves Performance
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Leaves") & (Dataset == "Bosch")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point() + geom_line() + scale_x_continuous(breaks = 1:10, labels = (2^(3:12) - 1), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent) + labs(x = "Leaves", y = "AUC% (bigger is better)") + theme_bw(base_size = 16),
+  ggplot(data = unique_data_1t[(Type == "Leaves") & (Dataset == "Bosch")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot() + geom_point() + scale_y_continuous(labels = scales::percent) + labs(x = "Leaves", y = "AUC% (bigger is better)") + theme_bw(base_size = 16),
+  cols = 1
+)
+```
+
+## Serious
+
+### Bosch Performance: AUC vs Leaves
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+    ggplot(data = unique_data_1t[(Type == "Leaves") & (Dataset == "Bosch")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Leaves", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(2:4, 10)]) + theme_bw(base_size = 18),
+    ggplot(data = unique_data_1t[(Type == "Leaves") & (Dataset == "Bosch")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(2:4, 10)]) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Leaves") & (Dataset == "Bosch")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Leaves", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(2:4, 10)]) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(2:4, 10)]) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Higgs Performance: AUC vs Leaves
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Leaves") & (Dataset == "Higgs")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Leaves", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[2:4]) + theme_bw(base_size = 18),
+  ggplot(data = unique_data_1t[(Type == "Leaves") & (Dataset == "Higgs")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[2:4]) + theme_bw(base_size = 18),
+  cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Leaves") & (Dataset == "Higgs")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Leaves", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[2:4]) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[2:4]) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Bosch Performance: AUC vs Depth
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = 3:12, minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Depth", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18),
+  ggplot(data = unique_data_1t[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+  cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = 3:12, minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Depth", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Higgs Performance: AUC vs Depth
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Depth") & (Dataset == "Higgs") & (Importance == "2")], aes(x = as.numeric(as.character(Parameter)), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 3:12, labels = 3:12, minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Depth", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18),
+  ggplot(data = unique_data_1t[(Type == "Depth") & (Dataset == "Higgs") & (Importance == "2")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+  cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Depth") & (Dataset == "Higgs") & (Importance == "2")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = 3:12, minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Depth", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Bosch Performance: AUC vs Pruning
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Hessian") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = 5^(0:3), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Hessian", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18),
+  ggplot(data = unique_data_1t[(Type == "Hessian") & (Dataset == "Bosch") & (Importance == "2")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+  cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Hessian") & (Dataset == "Bosch") & (Importance == "2")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = 5^(0:3), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Hessian", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Higgs Performance: AUC vs Pruning
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Hessian") & (Dataset == "Higgs") & (Importance == "2")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = 5^(0:3), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Hessian", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18),
+  ggplot(data = unique_data_1t[(Type == "Hessian") & (Dataset == "Higgs") & (Importance == "2")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+  cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Hessian") & (Dataset == "Higgs") & (Importance == "2")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = 5^(0:3), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Hessian", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Bosch Performance: AUC vs Sampling
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Sampling") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = c(1.0, 0.8, 0.6, 0.4), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Row Sampling", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18),
+  ggplot(data = unique_data_1t[(Type == "Sampling") & (Dataset == "Bosch") & (Importance == "2")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+  cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Sampling") & (Dataset == "Bosch") & (Importance == "2")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = c(1.0, 0.8, 0.6, 0.4), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Row Sampling", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.7 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Higgs Performance: AUC vs Sampling
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data_1t[(Type == "Sampling") & (Dataset == "Higgs") & (Importance == "2")], aes(x = as.numeric(Run), y = Metric, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = c(1.0, 0.8, 0.6, 0.4), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Row Sampling", y = "AUC%") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18),
+  ggplot(data = unique_data_1t[(Type == "Sampling") & (Dataset == "Higgs") & (Importance == "2")], aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+  cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data_1t[(Type == "Sampling") & (Dataset == "Higgs") & (Importance == "2")]
+unique_temp <- unique_temp[, AltMetric := Metric - min(Metric), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltMetric, fill = Algorithm)) + geom_density(stat = "identity", position = "fill", show.legend = FALSE) + scale_x_continuous(breaks = 1:4, labels = c(1.0, 0.8, 0.6, 0.4), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Row Sampling", y = "AUC Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    ggplot(data = unique_temp, aes(x = Algorithm, y = Metric, fill = Algorithm)) + geom_boxplot(show.legend = FALSE) + geom_point(show.legend = FALSE) + scale_y_continuous(labels = scales::percent, breaks = c(0.82 + (0.005 * 0:6)), minor_breaks = NULL) + labs(x = "Algorithm", y = "AUC%") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18),
+    cols = 1
+)
+```
+
+### Bosch Speed: Time vs Leaves
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Leaves") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Threads), y = TotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000, 50000)) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[2:4]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Training Time (seconds)") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Leaves") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Threads), y = TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[2:4]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Raw Time Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+### Bosch Speed: Time vs Depth
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2" | Algorithm == "xgboost-exact-O3")], aes(x = as.numeric(Threads), y = TotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000, 50000)) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(10, 1:4)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Training Time (seconds)") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Threads), y = TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Raw Time Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2" | Algorithm == "xgboost-exact-O3") & (Parameter == "06" | Parameter == "10")], aes(x = as.numeric(Threads), y = TotalTime, color = Algorithm)) + geom_point(size = 3, show.legend = FALSE) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000, 50000)) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(10, 1:4)]) + facet_wrap(~ Labelled, ncol = 2) + labs(x = "Threads", y = "Training Time (seconds)") + theme_bw(base_size = 18) + theme(axis.title.x = element_blank()),
+  ggplot(data = unique_data[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2" | Algorithm == "xgboost-exact-O3") & (Parameter == "06" | Parameter == "10")], aes(x = as.numeric(Threads), y = TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(10, 1:4)]) + facet_wrap(~ Labelled, ncol = 2) + labs(x = "Threads", y = "Raw Time Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect()),
+  cols = 1
+)
+```
+
+### Bosch Speed: Time vs Pruning
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Hessian") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Threads), y = TotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000, 50000)) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Training Time (seconds)") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Hessian") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Threads), y = TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Raw Time Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data[(Type == "Hessian") & (Dataset == "Bosch") & (Importance == "2" | Algorithm == "xgboost-exact-O3") & (Parameter == "001" | Parameter == "025")], aes(x = as.numeric(Threads), y = TotalTime, color = Algorithm)) + geom_point(size = 3, show.legend = FALSE) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000, 50000)) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(10, 1:4)]) + facet_wrap(~ Labelled, ncol = 2) + labs(x = "Threads", y = "Training Time (seconds)") + theme_bw(base_size = 18) + theme(axis.title.x = element_blank()),
+  ggplot(data = unique_data[(Type == "Hessian") & (Dataset == "Bosch") & (Importance == "2" | Algorithm == "xgboost-exact-O3") & (Parameter == "001" | Parameter == "025")], aes(x = as.numeric(Threads), y = TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(10, 1:4)]) + facet_wrap(~ Labelled, ncol = 2) + labs(x = "Threads", y = "Raw Time Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect()),
+  cols = 1
+)
+```
+
+### Bosch Speed: Time vs Sampling
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Sampling") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Threads), y = TotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2000, 5000, 10000, 25000, 50000)) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Training Time (seconds)") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = unique_data[(Type == "Sampling") & (Dataset == "Bosch") & (Importance == "2")], aes(x = as.numeric(Threads), y = TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Raw Time Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+multiplot(
+  ggplot(data = unique_data[(Type == "Sampling") & (Dataset == "Bosch") & (Importance == "2" | Algorithm == "xgboost-exact-O3") & (Parameter == "0.6" | Parameter == "1.0")], aes(x = as.numeric(Threads), y = TotalTime, color = Algorithm)) + geom_point(size = 3, show.legend = FALSE) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_log10(breaks = c(500, 1000, 2500, 5000, 10000, 25000, 50000)) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(10, 1:4)]) + facet_wrap(~ Labelled, ncol = 2) + labs(x = "Threads", y = "Training Time (seconds)") + theme_bw(base_size = 18) + theme(axis.title.x = element_blank()),
+  ggplot(data = unique_data[(Type == "Sampling") & (Dataset == "Bosch") & (Importance == "2" | Algorithm == "xgboost-exact-O3") & (Parameter == "0.6" | Parameter == "1.0")], aes(x = as.numeric(Threads), y = TotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:9, labels = c(1:6, 12, 20, 40), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(10, 1:4)]) + facet_wrap(~ Labelled, ncol = 2) + labs(x = "Threads", y = "Raw Time Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect()),
+  cols = 1
+)
+```
+
+### Bosch CSpeed xgboost-depthwise
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "xgboost-depthwise") & (Algorithm != "xgboost-exact-O3") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := 1 - TotalTime / min(TotalTime), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(2, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "xgboost-depthwise") & (Algorithm != "xgboost-exact-O3") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := (1 - TotalTime / min(TotalTime)) - min(1 - TotalTime / min(TotalTime)), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(2, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+### Bosch CSpeed xgboost-lossguide
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "xgboost-lossguide") & (Algorithm != "xgboost-exact-O3") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := 1 - TotalTime / min(TotalTime), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(2, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "xgboost-lossguide") & (Algorithm != "xgboost-exact-O3") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := (1 - TotalTime / min(TotalTime)) - min(1 - TotalTime / min(TotalTime)), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(2, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+### Bosch CSpeed LightGBM v1
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "lightgbm-v1") & (Algorithm != "lightgbm-v1-Os") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := 1 - TotalTime / min(TotalTime), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(3, 17, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "lightgbm-v1") & (Algorithm != "lightgbm-v1-Os") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := (1 - TotalTime / min(TotalTime)) - min(1 - TotalTime / min(TotalTime)), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(3, 17, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+### Bosch CSpeed LightGBM v2
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "lightgbm-v2") & (Algorithm != "lightgbm-v2-Os") & (Algorithm != "lightgbm-v2-gpu") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := 1 - TotalTime / min(TotalTime), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, color = Algorithm)) + geom_point(size = 3) + geom_line() + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(4, 17, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & like(Algorithm, "lightgbm-v2") & (Algorithm != "lightgbm-v2-Os") & (Algorithm != "lightgbm-v2-gpu") & (Threads != "20" & Threads != "40")]
+unique_temp <- unique_temp[, AltTotalTime := (1 - TotalTime / min(TotalTime)) - min(1 - TotalTime / min(TotalTime)), by = list(Threads, Labelled)]
+unique_temp <- unique_temp[, SumTotalTime := cumsum(AltTotalTime[order(as.numeric(Run))]), by = list(Labelled, Algorithm)]
+ggplot(data = unique_temp, aes(x = as.numeric(Threads), y = SumTotalTime, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:7, labels = c(1:6, 12), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[c(4, 17, 6, 9)]) + facet_wrap(~ Labelled, ncol = 5) + labs(x = "Threads", y = "Cumulated Speed vs Slowest Density") + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+### Bosch RAM Used
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Leaves") & (Dataset == "Bosch") & (Importance == "2") & (Algorithm != "lightgbm-v2-gpu") & (Threads == "4")]
+unique_temp <- unique_temp[, AltTotalRAM := TotalRAM - min(TotalRAM), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = TotalRAM, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_log10(limits = c(5e8, NA), breaks = c(5e8, 1e9, 2.5e9, 5e9, 1e10, 2.5e10, 5e10), labels = c("500MB", "1GB", "2.5GB", "5GB", "10GB", "25GB", "50GB"), minor_breaks = NULL) + labs(x = "Leaves", y = "Used RAM") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[2:4]) + theme_bw(base_size = 18) + theme(axis.title.x = element_blank()),
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltTotalRAM, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Leaves", y = "Used RAM Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[2:4]) + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect()),
+    cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Bosch") & (Importance == "2") & (Algorithm != "lightgbm-v2-gpu") & (Threads == "4")]
+unique_temp <- unique_temp[, AltTotalRAM := TotalRAM - min(TotalRAM), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = TotalRAM, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = 3:12, minor_breaks = NULL) + scale_y_log10(limits = c(5e8, NA), breaks = c(5e8, 1e9, 2.5e9, 5e9, 1e10, 2.5e10, 5e10), labels = c("500MB", "1GB", "2.5GB", "5GB", "10GB", "25GB", "50GB"), minor_breaks = NULL) + labs(x = "Depth", y = "Used RAM") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18) + theme(axis.title.x = element_blank()),
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltTotalRAM, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:10, labels = 3:12, minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Depth", y = "Used RAM Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect()),
+    cols = 1
+)
+```
+
+### Higgs RAM Used
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Leaves") & (Dataset == "Higgs") & (Importance == "2") & (Algorithm != "lightgbm-v2-gpu") & (Threads == "4")]
+unique_temp <- unique_temp[, AltTotalRAM := TotalRAM - min(TotalRAM), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = TotalRAM, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_log10(limits = c(5e8, NA), breaks = c(5e8, 1e9, 2.5e9, 5e9, 1e10, 2.5e10, 5e10), labels = c("500MB", "1GB", "2.5GB", "5GB", "10GB", "25GB", "50GB"), minor_breaks = NULL) + labs(x = "Leaves", y = "Used RAM") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[2:4]) + theme_bw(base_size = 18) + theme(axis.title.x = element_blank()),
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltTotalRAM, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:10, labels = paste0((2^(3:12) - 1), "(", 3:12, ")"), minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Leaves", y = "Used RAM Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")[2:4]) + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect()),
+    cols = 1
+)
+```
+
+```{r, fig.height=6, fig.width=12}
+unique_temp <- unique_data[(Type == "Depth") & (Dataset == "Higgs") & (Importance == "2") & (Algorithm != "lightgbm-v2-gpu") & (Threads == "4")]
+unique_temp <- unique_temp[, AltTotalRAM := TotalRAM - min(TotalRAM), by = Run]
+multiplot(
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = TotalRAM, color = Algorithm)) + geom_point(show.legend = FALSE, size = 3) + geom_line(show.legend = FALSE) + scale_x_continuous(breaks = 1:10, labels = 3:12, minor_breaks = NULL) + scale_y_log10(limits = c(5e8, NA), breaks = c(5e8, 1e9, 2.5e9, 5e9, 1e10, 2.5e10, 5e10), labels = c("500MB", "1GB", "2.5GB", "5GB", "10GB", "25GB", "50GB"), minor_breaks = NULL) + labs(x = "Depth", y = "Used RAM") + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")) + theme_bw(base_size = 18) + theme(axis.title.x = element_blank()),
+    ggplot(data = unique_temp, aes(x = as.numeric(Run), y = AltTotalRAM, fill = Algorithm)) + geom_density(stat = "identity", position = "fill") + scale_x_continuous(breaks = 1:10, labels = 3:12, minor_breaks = NULL) + scale_y_continuous(labels = scales::percent, breaks = 0.2 * (0:5), minor_breaks = NULL) + labs(x = "Depth", y = "Used RAM Density") + scale_fill_manual(values = Laurae::brewer.pal_extended(18, "Pastel1")) + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect()),
+    cols = 1
+)
+```
+
+### Performance Anomaly
+
+```{r, fig.height=6, fig.width=12}
+ggplot(all_data[Dataset == "Bosch" & Algorithm %in% c("lightgbm-v1-O3-fmath", "lightgbm-v1-O3") & Type == "Depth" & Run == "5"], aes(x = Iteration, y = TimeDelta, color = Algorithm)) + geom_point() + geom_line() + scale_y_log10(breaks = c(0.01, 0.1, 1, 10, 100), labels = c("10ms", "0.1s", "1s", "10s", "100s"), minor_breaks = NULL) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(1, 3)]) + labs(x = "Iteration", y = "Training Timing") + facet_wrap(~ paste0("Threads: ", sprintf("%02d", as.numeric(as.character(Threads)))), ncol = 4) + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+### Performance Interest
+
+```{r, fig.height=6, fig.width=12}
+ggplot(all_data[Dataset == "Bosch" & (Importance == 2 | Algorithm == "xgboost-exact-O3") & Type == "Depth" & Depth == "6"], aes(x = Iteration, y = TimeDelta, color = Algorithm)) + geom_point(alpha = 0.5) + geom_line(alpha = 0.5) + scale_y_log10(limits = c(0.01, 100), breaks = c(0.01, 0.1, 1, 10, 100), labels = c("10ms", "0.1s", "1s", "10s", "100s"), minor_breaks = NULL) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(10, 1:4)]) + labs(x = "Iteration", y = "Training Timing") + facet_wrap(~ paste0("Threads: ", sprintf("%02d", as.numeric(as.character(Threads)))), ncol = 3) + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(all_data[Dataset == "Bosch" & (Importance == 2 | Algorithm == "xgboost-exact-O3") & Type == "Depth" & Depth == "10"], aes(x = Iteration, y = TimeDelta, color = Algorithm)) + geom_point(alpha = 0.5) + geom_line(alpha = 0.5) + scale_y_log10(limits = c(0.01, 100), breaks = c(0.01, 0.1, 1, 10, 100), labels = c("10ms", "0.1s", "1s", "10s", "100s"), minor_breaks = NULL) + scale_color_manual(values = Laurae::brewer.pal_extended(18, "Set1")[c(10, 1:4)]) + labs(x = "Iteration", y = "Training Timing") + facet_wrap(~ paste0("Threads: ", sprintf("%02d", as.numeric(as.character(Threads)))), ncol = 3) + theme_bw(base_size = 18) + theme(legend.position = "bottom", legend.box.background = element_rect())
+```
