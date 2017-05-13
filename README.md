@@ -43,7 +43,7 @@ Versions to install:
 
 * xgboost-ex: manual installation of commit `dmlc/xgboost@3b9b573` (Pull Request 2161, Mar 31 2017) or `devtools::install_github("Laurae2/ez_xgb/R-package@2017-03-31-v2", force = TRUE)`
 
-* LightGBM v1: `devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)`
+* LightGBM v1: `devtools::install_github("Microsoft/LightGBM@ea6bc0a", subdir = "R-package", force = TRUE)`
 
 * LightGBM v2: `devtools::install_github("Microsoft/LightGBM@1bf7bbd", subdir = "R-package", force = TRUE)`
 
@@ -408,7 +408,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
@@ -516,7 +516,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
@@ -551,7 +551,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
@@ -586,7 +586,7 @@ If not, adjust.
 R:
 
 ```r
-devtools::install_github("Microsoft/LightGBM@v1@ea6bc0a", subdir = "R-package", force = TRUE)
+devtools::install_github("Microsoft/LightGBM@ea6bc0a", subdir = "R-package", force = TRUE)
 ```
 
 ---
