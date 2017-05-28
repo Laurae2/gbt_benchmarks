@@ -13,8 +13,8 @@ label <- readRDS(file = "../data/higgs_label.rds")
 # Split
 train_1 <- train_sparse[1:10000000, ]
 train_2 <- label[1:10000000]
-test_1 <- train_sparse[10000001:11000000, ]
-test_2 <- label[10000001:11000000]
+test_1 <- train_sparse[10900001:11000000, ]
+test_2 <- label[10900001:11000000]
 
 # For LightGBM
 lgb_train <- lgb.Dataset(data = train_1, label = train_2)
