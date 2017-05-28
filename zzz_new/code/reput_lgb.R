@@ -18,13 +18,13 @@ if (interactive()) {
   setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
   threads <- 12
   type <- "v1" # v1
-  grid_search <- data.frame(Depth = c(3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
-                            Leaves = c(7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095),
-                            Hessian = rep(1, 10),
-                            Colsample = rep(1, 10),
-                            Subsample = rep(1, 10),
-                            Rounds = c(2000, 1500, 1000, 500, 400, 350, 300, 250, 200, 150),
-                            Eta = rep(0.25, 10))
+  grid_search <- data.frame(Depth = c(3, 4, 5, 6, 7),
+                            Leaves = c(7, 15, 31, 63, 127),
+                            Hessian = rep(1, 5),
+                            Colsample = rep(1, 5),
+                            Subsample = rep(1, 5),
+                            Rounds = c(2000, 1250, 1100, 1000, 900),
+                            Eta = rep(0.25, 5))
 } else {
   setwd(commandArgs(trailingOnly = TRUE)[1])
   threads <- as.numeric(commandArgs(trailingOnly = TRUE)[2])
@@ -32,30 +32,30 @@ if (interactive()) {
   model_type <- commandArgs(trailingOnly = TRUE)[4]
   debug_mode <- commandArgs(trailingOnly = TRUE)[5]
   if (model_type == "leaves") {
-    grid_search <- data.frame(Depth = rep(-1, 10),
-                              Leaves = c(7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095),
-                              Hessian = rep(1, 10),
-                              Colsample = rep(1, 10),
-                              Subsample = rep(1, 10),
-                              Rounds = c(2000, 1500, 1000, 500, 400, 350, 300, 250, 200, 150),
-                              Eta = rep(0.25, 10))
+    grid_search <- data.frame(Depth = rep(-1, 5),
+                              Leaves = c(7, 15, 31, 63, 127),
+                              Hessian = rep(1, 5),
+                              Colsample = rep(1, 5),
+                              Subsample = rep(1, 5),
+                              Rounds = c(2000, 1250, 1100, 1000, 900),
+                              Eta = rep(0.25, 5))
     printed_info <- sprintf("%04d", grid_search$Leaves)
   } else if (model_type == "depth") {
-    grid_search <- data.frame(Depth = c(3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
-                              Leaves = c(7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095),
-                              Hessian = rep(1, 10),
-                              Colsample = rep(1, 10),
-                              Subsample = rep(1, 10),
-                              Rounds = c(2000, 1500, 1000, 500, 400, 350, 300, 250, 200, 150),
-                              Eta = rep(0.25, 10))
+    grid_search <- data.frame(Depth = c(3, 4, 5, 6, 7),
+                              Leaves = c(7, 15, 31, 63, 127),
+                              Hessian = rep(1, 5),
+                              Colsample = rep(1, 5),
+                              Subsample = rep(1, 5),
+                              Rounds = c(2000, 1250, 1100, 1000, 900),
+                              Eta = rep(0.25, 5))
     printed_info <- sprintf("%02d", grid_search$Depth)
   } else if (model_type == "hessian") {
-    grid_search <- data.frame(Depth = rep(10, 4),
-                              Leaves = c(1023, 1023, 1023, 1023),
+    grid_search <- data.frame(Depth = rep(6, 4),
+                              Leaves = c(63, 63, 63, 63),
                               Hessian = c(1, 5, 25, 125),
                               Colsample = rep(1, 4),
                               Subsample = rep(1, 4),
-                              Rounds = rep(200, 4),
+                              Rounds = rep(700, 4),
                               Eta = rep(0.25, 4))
     printed_info <- sprintf("%03d", grid_search$Hessian)
   } else if (model_type == "sampling") {
@@ -64,7 +64,7 @@ if (interactive()) {
                               Hessian = rep(1, 4),
                               Colsample = rep(1, 4),
                               Subsample = c(1, 0.8, 0.6, 0.4),
-                              Rounds = rep(400, 4),
+                              Rounds = rep(1000, 4),
                               Eta = rep(0.25, 4))
     printed_info <- paste0(sprintf("%.01f", grid_search$Subsample))
   }
@@ -74,15 +74,15 @@ if (debug_mode == "debug") {
   grid_search$Rounds <- rep(2, nrow(grid_search))
 }
 
-train_data <- paste0("../data/higgs_train_lgb_", type, ".data")
-test_data <-  paste0("../data/higgs_test_lgb_", type, ".data")
+train_data <- paste0("../data/reput_train_lgb_", type, ".data")
+test_data <-  paste0("../data/reput_test_lgb_", type, ".data")
 common_log <- "../summary/common"
 ledger_log <- "../summary/ledger"
 temp_shell <- "../windows/temp_shell"
 temp_pshell <- "../windows/temp_pshell"
 temp_file <- "../windows/temp_file"
-spec_log <- paste0("../lgb_", type, "/", sprintf("%02d", threads), "t_higgs_", model_type)
-model_name <- paste0("Higgs: ", threads, "-thread LightGBM ", type, ", ", model_type, " limited")
+spec_log <- paste0("../lgb_", type, "/", sprintf("%02d", threads), "t_reput_", model_type)
+model_name <- paste0("Reput: ", threads, "-thread LightGBM ", type, ", ", model_type, " limited")
 file_extension <- ".txt"
 
 if (!file.exists(paste0(common_log, file_extension))) {
@@ -112,7 +112,7 @@ temp_model <- lgb.train(params = list(num_threads = threads,
                                       min_gain_to_split = 1,
                                       min_sum_hessian_in_leaf = 1,
                                       min_data_in_leaf = 1,
-                                      bin_construct_sample_cnt = 10000000L),
+                                      bin_construct_sample_cnt = 2250000L),
                         data = train,
                         nrounds = 1,
                         valids = list(train = train, test = test),
@@ -158,7 +158,7 @@ for (i in 1:nrow(grid_search)) {
                                         bagging_seed = 1,
                                         feature_fraction = grid_search$Colsample[i],
                                         min_data_in_leaf = 1,
-                                        bin_construct_sample_cnt = 10000000L),
+                                        bin_construct_sample_cnt = 2250000L),
                           data = train,
                           nrounds = grid_search$Rounds[i],
                           valids = list(test = test),
@@ -176,7 +176,7 @@ for (i in 1:nrow(grid_search)) {
   cat("Best round: ", sprintf("%04d", which.max(temp_metric)[1]), "\nBest AUC: ", sprintf("%.12f", max(temp_metric)), "\nTotal time: ", sprintf("%.12f", (EndTime - StartTime) / 1000), "s\n\n\n\n", sep = "", file = paste0(ledger_log, file_extension), append = TRUE)
   
   # Dataset,Algorithm,Type,Run,Threads,Time,Metric,Best Iteration,Iterations,Eta,Leaves,Depth,Hessian,Subsample,Colsample_bytree
-  cat("'higgs','lightgbm-", type, "','", model_type, "',", i, ",", threads, ",", sprintf("%.12f", (EndTime - StartTime) / 1000), ",", sprintf("%.12f", max(temp_metric)), ",", which.max(temp_metric)[1], ",", grid_search$Rounds[i], ",", grid_search$Eta[i], ",", grid_search$Leaves[i], ",", grid_search$Depth[i], ",", grid_search$Hessian[i], ",", grid_search$Subsample[i], ",", grid_search$Colsample[i], "\n", sep = "", file = paste0(common_log, file_extension), append = TRUE)
+  cat("'reput','lightgbm-", type, "','", model_type, "',", i, ",", threads, ",", sprintf("%.12f", (EndTime - StartTime) / 1000), ",", sprintf("%.12f", max(temp_metric)), ",", which.max(temp_metric)[1], ",", grid_search$Rounds[i], ",", grid_search$Eta[i], ",", grid_search$Leaves[i], ",", grid_search$Depth[i], ",", grid_search$Hessian[i], ",", grid_search$Subsample[i], ",", grid_search$Colsample[i], "\n", sep = "", file = paste0(common_log, file_extension), append = TRUE)
   
   rm(temp_model, train, test)
   gc(verbose = FALSE)

@@ -49,7 +49,7 @@ if (interactive()) {
                               Rounds = c(2000, 1500, 1000, 800, 500, 400, 400, 400, 400, 400),
                               Eta = rep(0.02, 10))
     if (type == "exact") {
-      grid_search <- grid_search[c(1, 4, 8)]
+      grid_search <- grid_search[c(1, 4, 8), ]
     }
     printed_info <- sprintf("%02d", grid_search$Depth)
   } else if (model_type == "hessian") {
@@ -61,7 +61,7 @@ if (interactive()) {
                               Rounds = rep(400, 4),
                               Eta = rep(0.02, 4))
     if (type == "exact") {
-      grid_search <- grid_search[c(1, 3)]
+      grid_search <- grid_search[c(1, 3), ]
     }
     printed_info <- sprintf("%03d", grid_search$Hessian)
   } else if (model_type == "sampling") {
@@ -73,7 +73,7 @@ if (interactive()) {
                               Rounds = rep(750, 4),
                               Eta = rep(0.04, 4))
     if (type == "exact") {
-      grid_search <- grid_search[c(1, 3)]
+      grid_search <- grid_search[c(1, 3), ]
     }
     printed_info <- paste0(sprintf("%.01f", grid_search$Subsample))
   }
@@ -185,7 +185,6 @@ for (i in 1:nrow(grid_search)) {
                                           eta = grid_search$Eta[i],
                                           max_depth = grid_search$Depth[i],
                                           max_leaves = grid_search$Leaves[i],
-                                          max_bin = 255,
                                           gamma = 1,
                                           min_child_weight = grid_search$Hessian[i],
                                           subsample = grid_search$Subsample[i],

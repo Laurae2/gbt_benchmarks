@@ -3,3 +3,4 @@ echo "Running in directory: ${DIR}"
 
 Rscript ../creator/bosch_xgb_gen.R ${DIR}
 Rscript ../creator/higgs_xgb_gen.R ${DIR}
+Rscript ../creator/reput_lgb_gen.R ${DIR}

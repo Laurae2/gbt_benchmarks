@@ -8,9 +8,6 @@ Rscript bosch_xgb.R ${DIR} 8 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 8 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 8 depthwise hessian release
 Rscript bosch_xgb.R ${DIR} 8 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 8 exact depth release
-Rscript bosch_xgb.R ${DIR} 8 exact hessian release
-Rscript bosch_xgb.R ${DIR} 8 exact sampling release
 Rscript bosch_xgb.R ${DIR} 7 lossguide leaves release
 Rscript bosch_xgb.R ${DIR} 7 lossguide depth release
 Rscript bosch_xgb.R ${DIR} 7 lossguide hessian release
@@ -18,9 +15,6 @@ Rscript bosch_xgb.R ${DIR} 7 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 7 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 7 depthwise hessian release
 Rscript bosch_xgb.R ${DIR} 7 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 7 exact depth release
-Rscript bosch_xgb.R ${DIR} 7 exact hessian release
-Rscript bosch_xgb.R ${DIR} 7 exact sampling release
 Rscript bosch_xgb.R ${DIR} 6 lossguide leaves release
 Rscript bosch_xgb.R ${DIR} 6 lossguide depth release
 Rscript bosch_xgb.R ${DIR} 6 lossguide hessian release
@@ -28,19 +22,13 @@ Rscript bosch_xgb.R ${DIR} 6 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 6 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 6 depthwise hessian release
 Rscript bosch_xgb.R ${DIR} 6 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 6 exact depth release
-Rscript bosch_xgb.R ${DIR} 6 exact hessian release
-Rscript bosch_xgb.R ${DIR} 6 exact sampling release
 Rscript bosch_xgb.R ${DIR} 5 lossguide leaves release
 Rscript bosch_xgb.R ${DIR} 5 lossguide depth release
 Rscript bosch_xgb.R ${DIR} 5 lossguide hessian release
 Rscript bosch_xgb.R ${DIR} 5 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 5 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 5 depthwise hessian release
-Rscript bosch_xgb.R ${DIR} 5 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 5 exact depth release
-Rscript bosch_xgb.R ${DIR} 5 exact hessian release
-Rscript bosch_xgb.R ${DIR} 5 exact sampling release
+Rscript bosch_xgb.R ${DIR} 5 depthwise sampling 
 Rscript bosch_xgb.R ${DIR} 4 lossguide leaves release
 Rscript bosch_xgb.R ${DIR} 4 lossguide depth release
 Rscript bosch_xgb.R ${DIR} 4 lossguide hessian release
@@ -48,9 +36,6 @@ Rscript bosch_xgb.R ${DIR} 4 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 4 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 4 depthwise hessian release
 Rscript bosch_xgb.R ${DIR} 4 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 4 exact depth release
-Rscript bosch_xgb.R ${DIR} 4 exact hessian release
-Rscript bosch_xgb.R ${DIR} 4 exact sampling release
 Rscript bosch_xgb.R ${DIR} 3 lossguide leaves release
 Rscript bosch_xgb.R ${DIR} 3 lossguide depth release
 Rscript bosch_xgb.R ${DIR} 3 lossguide hessian release
@@ -58,9 +43,6 @@ Rscript bosch_xgb.R ${DIR} 3 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 3 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 3 depthwise hessian release
 Rscript bosch_xgb.R ${DIR} 3 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 3 exact depth release
-Rscript bosch_xgb.R ${DIR} 3 exact hessian release
-Rscript bosch_xgb.R ${DIR} 3 exact sampling release
 Rscript bosch_xgb.R ${DIR} 2 lossguide leaves release
 Rscript bosch_xgb.R ${DIR} 2 lossguide depth release
 Rscript bosch_xgb.R ${DIR} 2 lossguide hessian release
@@ -68,9 +50,6 @@ Rscript bosch_xgb.R ${DIR} 2 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 2 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 2 depthwise hessian release
 Rscript bosch_xgb.R ${DIR} 2 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 2 exact depth release
-Rscript bosch_xgb.R ${DIR} 2 exact hessian release
-Rscript bosch_xgb.R ${DIR} 2 exact sampling release
 Rscript bosch_xgb.R ${DIR} 1 lossguide leaves release
 Rscript bosch_xgb.R ${DIR} 1 lossguide depth release
 Rscript bosch_xgb.R ${DIR} 1 lossguide hessian release
@@ -78,6 +57,3 @@ Rscript bosch_xgb.R ${DIR} 1 lossguide sampling release
 Rscript bosch_xgb.R ${DIR} 1 depthwise depth release
 Rscript bosch_xgb.R ${DIR} 1 depthwise hessian release
 Rscript bosch_xgb.R ${DIR} 1 depthwise sampling release
-Rscript bosch_xgb.R ${DIR} 1 exact depth release
-Rscript bosch_xgb.R ${DIR} 1 exact hessian release
-Rscript bosch_xgb.R ${DIR} 1 exact sampling release
