@@ -37,7 +37,7 @@ if (interactive()) {
                               Hessian = rep(1, 5),
                               Colsample = rep(1, 5),
                               Subsample = rep(1, 5),
-                              Rounds = c(2000, 1250, 1100, 1000, 900),
+                              Rounds = c(2000, 1250, 1000, 400, 200),
                               Eta = rep(0.25, 5))
     printed_info <- sprintf("%04d", grid_search$Leaves)
   } else if (model_type == "depth") {
@@ -55,7 +55,7 @@ if (interactive()) {
                               Hessian = c(1, 5, 25, 125),
                               Colsample = rep(1, 4),
                               Subsample = rep(1, 4),
-                              Rounds = rep(700, 4),
+                              Rounds = rep(1000, 4),
                               Eta = rep(0.25, 4))
     printed_info <- sprintf("%03d", grid_search$Hessian)
   } else if (model_type == "sampling") {

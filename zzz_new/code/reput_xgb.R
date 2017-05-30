@@ -18,13 +18,13 @@ if (interactive()) {
   setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
   threads <- 12
   type <- "depthwise" # lossguide
-  grid_search <- data.frame(Depth = c(3, 4, 5, 6, 7, 8),
-                            Leaves = c(7, 15, 31, 63, 127, 255),
-                            Hessian = rep(1, 6),
-                            Colsample = rep(1, 6),
-                            Subsample = rep(1, 6),
-                            Rounds = c(2000, 1250, 1100, 1000, 900, 800),
-                            Eta = rep(0.25, 6))
+  grid_search <- data.frame(Depth = c(3, 4, 5, 6, 7),
+                            Leaves = c(7, 15, 31, 63, 127),
+                            Hessian = rep(1, 5),
+                            Colsample = rep(1, 5),
+                            Subsample = rep(1, 5),
+                            Rounds = c(2000, 1250, 1100, 1000, 900),
+                            Eta = rep(0.25, 5))
 } else {
   setwd(commandArgs(trailingOnly = TRUE)[1])
   threads <- as.numeric(commandArgs(trailingOnly = TRUE)[2])
@@ -37,7 +37,7 @@ if (interactive()) {
                               Hessian = rep(1, 5),
                               Colsample = rep(1, 5),
                               Subsample = rep(1, 5),
-                              Rounds = c(2000, 1250, 1100, 1000, 900),
+                              Rounds = c(2000, 1250, 1000, 400, 200),
                               Eta = rep(0.25, 5))
     printed_info <- sprintf("%04d", grid_search$Leaves)
   } else if (model_type == "depth") {
@@ -58,7 +58,7 @@ if (interactive()) {
                               Hessian = c(1, 5, 25, 125),
                               Colsample = rep(1, 4),
                               Subsample = rep(1, 4),
-                              Rounds = rep(700, 4),
+                              Rounds = rep(1000, 4),
                               Eta = rep(0.25, 4))
     if (type == "exact") {
       grid_search <- grid_search[c(1, 3), ]
