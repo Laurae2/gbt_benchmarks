@@ -248,7 +248,7 @@ Reference times are provided for a stock i7-7700K when using 8 threads, and are 
 
 Threads:
 * i7-7700K: 4, 8 (exact: 4, 8)
-* Dual Xeon: 20, 40
+* Dual Xeon: 5, 10 (exact: 20, 40)
 
 ### Leaves test
 
